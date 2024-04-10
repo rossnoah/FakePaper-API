@@ -1,133 +1,144 @@
+import { Context, Hono } from "hono";
+import { cors } from "hono/cors";
 import dotenv from "dotenv";
-import express, { Express, Request, Response } from "express";
-import bodyParser from "body-parser";
-import { spawn } from "child_process";
+import { buildPrompt, cleanLatex, generateLatex } from "./generator"; // Adjust the import path as needed
 import fs from "fs";
 import path from "path";
 import { v4 as uuidv4 } from "uuid";
 import { put } from "@vercel/blob";
-import generatorRoute from "./generatorRoute";
+import { spawn } from "child_process";
+import OpenAI from "openai";
+import { serve } from "@hono/node-server";
 
 dotenv.config();
 
-const app: Express = express();
-const port = process.env.PORT || 3000;
+const app = new Hono();
 
-export const AUTH_TOKEN = process.env.AUTH_TOKEN;
-if (!AUTH_TOKEN) {
-  console.error("AUTH_TOKEN is not set in .env file");
+const AUTH_TOKEN = process.env.AUTH_TOKEN;
+const BLOB_READ_WRITE_TOKEN = process.env.BLOB_READ_WRITE_TOKEN;
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const EXTERNAL_SERVER = process.env.EXTERNAL_SERVER;
+const PORT = (process.env.PORT as unknown as number) || 3000;
+
+if (
+  !AUTH_TOKEN ||
+  !BLOB_READ_WRITE_TOKEN ||
+  !OPENAI_API_KEY ||
+  !EXTERNAL_SERVER
+) {
+  console.error("One or more environment variables are not set in .env file");
   process.exit(1);
 }
 
-export const BLOB_READ_WRITE_TOKEN = process.env.BLOB_READ_WRITE_TOKEN;
-if (!BLOB_READ_WRITE_TOKEN) {
-  console.error("BLOB_READ_WRITE_TOKEN is not set in .env file");
-  process.exit(1);
-}
+export const openai = new OpenAI({
+  apiKey: OPENAI_API_KEY, // This can be omitted if it's the same as the key name
+});
 
-export const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-if (!OPENAI_API_KEY) {
-  console.error("OPENAI_API_KEY is not set in .env file");
-  process.exit(1);
-}
+// Middleware
+app.use("*", cors()); // Enable CORS for all routes
 
-export const EXTERNAL_SERVER = process.env.EXTERNAL_SERVER;
-if (!EXTERNAL_SERVER) {
-  console.error("EXTERNAL_SERVER is not set in .env file");
-  process.exit(1);
-}
+app.get("/", (c: Context) => c.text("LaTeX to PDF API is running!"));
 
-// Middleware to set CORS headers
-app.use((req, res, next) => {
-  // Allow any domain
-  res.setHeader("Access-Control-Allow-Origin", "*");
+app.get("/api/generate", async (c: Context) =>
+  c.text("You must POST to /api/generate", 400)
+);
 
-  // Allow specific methods
-  res.setHeader(
-    "Access-Control-Allow-Methods",
-    "GET, POST, OPTIONS, PUT, PATCH, DELETE"
+// Util function to validate request body
+function validateRequestBody(
+  body: any
+): body is { topic: string; isPremium: boolean } {
+  return (
+    typeof body?.topic === "string" && typeof body?.isPremium === "boolean"
   );
+}
 
-  next();
-});
+// Async wrapper for LaTeX PDF generation process
+async function generatePdfFromLatex(
+  latexString: string,
+  tmpDir: string
+): Promise<string | null> {
+  return new Promise((resolve, reject) => {
+    const uuid = uuidv4();
+    const inputPath = path.join(tmpDir, `${uuid}.tex`);
+    const outputPath = path.join(tmpDir, `${uuid}.pdf`);
+    fs.writeFileSync(inputPath, latexString);
 
-app.get("/", (req: Request, res: Response) => {
-  res.send("LaTeX to PDF API is running!");
-});
+    const latexProcess = spawn("pdflatex", [
+      "-output-directory",
+      tmpDir,
+      inputPath,
+    ]);
 
-app.use("/api", generatorRoute);
+    latexProcess.on("exit", (code) => {
+      if (code !== 0) {
+        cleanupTempFiles(tmpDir);
+        reject("Failed to compile LaTeX document.");
+      } else {
+        resolve(outputPath);
+      }
+    });
+  });
+}
 
-// middleware to confirm AUTH_TOKEN as bearer token
-app.use((req: Request, res: Response, next) => {
-  const token = req.headers.authorization;
-  if (token === `Bearer ${AUTH_TOKEN}`) {
-    next();
-  } else {
-    res.status(401).send("Unauthorized");
-  }
-});
-
-app.use(bodyParser.text({ type: "text/plain" }));
-
-app.post("/latex", async (req: Request, res: Response) => {
-  const latexContent = req.body;
-
-  if (!latexContent) {
-    res.status(400).send("No LaTeX content provided.");
-    return;
-  }
-
-  //extract the title from the latexContent
-  //\title{The Comedy of Errors: Why Emacs Reigns Supreme Over Vim and Neovim}
-
+function extractTitleFromLatex(latexString: string): string {
   const titleRegex = /\\title{([^}]*)}/;
 
-  const titleMatch = latexContent.match(titleRegex);
-  let title = titleMatch ? titleMatch[1] : "";
-  title = title.replace("//", " ");
+  const titleMatch = latexString.match(titleRegex);
+  let title = titleMatch ? titleMatch[1] : "Untitled";
+  title = title.replace("\\\\", " ");
+  return title;
+}
 
-  const uuid = uuidv4();
-
-  const tmpDir = fs.mkdtempSync(path.join(__dirname, "tmp-"));
-  const inputPath = path.join(tmpDir, `${uuid}.tex`);
-  const outputPath = path.join(tmpDir, `${uuid}.pdf`);
-
-  fs.writeFileSync(inputPath, latexContent);
-
-  const latex = spawn("pdflatex", ["-output-directory", tmpDir, inputPath]);
-
-  latex.on("exit", async (code) => {
-    if (code !== 0) {
-      cleanupTempFiles(tmpDir);
-      res.status(500).send("Failed to compile LaTeX document.");
-      return;
+app.post("/api/generate", async (c: Context) => {
+  try {
+    const body = await c.req.json();
+    if (!validateRequestBody(body)) {
+      return c.text("Invalid request", 400);
     }
 
-    try {
-      //   console.log("Uploading PDF to Vercel Blob...");
-      //   console.log("outputPath:", outputPath);
-      const pdfBuffer = fs.readFileSync(outputPath);
-      //   console.log("PDF size:", pdfBuffer.length);
-      const filename = path.basename(outputPath);
-      //   console.log("PDF generated:", outputPath);
-      const blob = await put(filename, pdfBuffer, {
-        access: "public",
-      });
-
-      console.log("PDF uploaded to Vercel Blob:", blob.url);
-
-      cleanupTempFiles(tmpDir);
-      res.json({
-        message: "PDF successfully generated and uploaded.",
-        title: title,
-        url: blob.url,
-      });
-    } catch (error) {
-      cleanupTempFiles(tmpDir);
-      res.status(500).send("Failed to upload PDF to Vercel Blob.");
+    const { topic, isPremium } = body;
+    const generatedPrompt = await buildPrompt(topic);
+    if (!generatedPrompt) {
+      return c.text("An error occurred while building the prompt", 500);
     }
-  });
+
+    const response = await generateLatex(generatedPrompt, isPremium);
+    if (!response) {
+      return c.text("An error occurred while generating LaTeX string", 500);
+    }
+
+    const latexString = cleanLatex(response);
+    const title = extractTitleFromLatex(latexString);
+
+    const tmpDir = fs.mkdtempSync(path.join(__dirname, "tmp-"));
+    const outputPath = await generatePdfFromLatex(latexString, tmpDir);
+
+    if (!outputPath) {
+      return c.text("An error occurred while generating PDF", 500);
+    }
+
+    const pdfBuffer = fs.readFileSync(outputPath);
+    const filename = path.basename(outputPath);
+    const blob = await put(filename, pdfBuffer, { access: "public" });
+    cleanupTempFiles(tmpDir);
+
+    return c.json({
+      message: "PDF successfully generated and uploaded.",
+      title: title,
+      url: blob.url,
+    });
+  } catch (error) {
+    console.error(error);
+    return c.text("An error occurred while processing the request", 500);
+  }
 });
+
+serve({
+  fetch: app.fetch,
+  port: PORT,
+});
+
+console.log(`Server running on port http://localhost:${PORT}`);
 
 function cleanupTempFiles(dir: string) {
   fs.readdirSync(dir).forEach((file) => {
@@ -136,7 +147,3 @@ function cleanupTempFiles(dir: string) {
   });
   fs.rmdirSync(dir);
 }
-
-app.listen(port, () => {
-  console.log(`Server is running at http://localhost:${port}`);
-});

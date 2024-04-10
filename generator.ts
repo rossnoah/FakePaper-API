@@ -1,13 +1,4 @@
-import OpenAI from "openai";
-import { OPENAI_API_KEY } from ".";
-
-import dotenv from "dotenv";
-
-dotenv.config();
-console.log(OPENAI_API_KEY);
-const openai = new OpenAI({
-  apiKey: OPENAI_API_KEY, // This is the default and can be omitted
-});
+import { openai } from ".";
 
 export async function buildPrompt(userPrompt: string): Promise<string | null> {
   try {
@@ -25,7 +16,7 @@ export async function buildPrompt(userPrompt: string): Promise<string | null> {
         },
       ],
       temperature: 1,
-      max_tokens: 256,
+      max_tokens: 512,
       top_p: 1,
       frequency_penalty: 0,
       presence_penalty: 0,
