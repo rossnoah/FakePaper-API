@@ -4,11 +4,9 @@ import bodyParser from "body-parser";
 import { spawn } from "child_process";
 import fs from "fs";
 import path from "path";
-import axios from "axios";
 import { v4 as uuidv4 } from "uuid";
 import { put } from "@vercel/blob";
 import generatorRoute from "./generatorRoute";
-import cors from "cors";
 
 dotenv.config();
 
@@ -39,7 +37,19 @@ if (!EXTERNAL_SERVER) {
   process.exit(1);
 }
 
-app.use(cors());
+// Middleware to set CORS headers
+app.use((req, res, next) => {
+  // Allow any domain
+  res.setHeader("Access-Control-Allow-Origin", "*");
+
+  // Allow specific methods
+  res.setHeader(
+    "Access-Control-Allow-Methods",
+    "GET, POST, OPTIONS, PUT, PATCH, DELETE"
+  );
+
+  next();
+});
 
 app.get("/", (req: Request, res: Response) => {
   res.send("LaTeX to PDF API is running!");
