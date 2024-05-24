@@ -17,7 +17,9 @@ COPY . .
 RUN npm run build
 
 # Install TeX Live (basic scheme to reduce image size; adjust as needed)
-RUN apt-get update && apt-get install -y --no-install-recommends texlive-latex-base && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends texlive-latex-base && \
+    rm -rf /var/lib/apt/lists/*
 
 # Expose the port your app runs on
 EXPOSE 3000
