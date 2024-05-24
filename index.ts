@@ -29,7 +29,13 @@ export const openai = new OpenAI({
 });
 
 // Middleware
-app.use("*", cors()); // Enable CORS for all routes
+app.use(
+  "*",
+  cors({
+    origin: "*",
+    allowMethods: ["GET", "POST"],
+  })
+); // Enable CORS for all routes
 
 app.get("/", (c: Context) => c.text("LaTeX to PDF API is running!"));
 
