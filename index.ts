@@ -63,12 +63,17 @@ async function generatePdfFromLatex(
     const inputPath = path.join(tmpDir, `${uuid}.tex`);
     const outputPath = path.join(tmpDir, `${uuid}.pdf`);
     fs.writeFileSync(inputPath, latexString);
-
-    const latexProcess = spawn("pdflatex", [
-      "-output-directory",
-      tmpDir,
-      inputPath,
-    ]);
+    let latexProcess;
+    try {
+      latexProcess = spawn("pdflatex", [
+        "-output-directory",
+        tmpDir,
+        inputPath,
+      ]);
+    } catch (error) {
+      console.error(error);
+      return null;
+    }
 
     latexProcess.on("exit", (code) => {
       if (code !== 0) {
