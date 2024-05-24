@@ -3,7 +3,7 @@ services:
   app:
     build: .
     ports:
-      - "2345:3000" #set to whichever port you want
+      - "3000:3000" #set to whichever port you want
     env_file:
       - .env
     environment:

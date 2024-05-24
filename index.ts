@@ -17,15 +17,9 @@ const app = new Hono();
 const AUTH_TOKEN = process.env.AUTH_TOKEN;
 const BLOB_READ_WRITE_TOKEN = process.env.BLOB_READ_WRITE_TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const EXTERNAL_SERVER = process.env.EXTERNAL_SERVER;
 const PORT = (process.env.PORT as unknown as number) || 3000;
 
-if (
-  !AUTH_TOKEN ||
-  !BLOB_READ_WRITE_TOKEN ||
-  !OPENAI_API_KEY ||
-  !EXTERNAL_SERVER
-) {
+if (!AUTH_TOKEN || !BLOB_READ_WRITE_TOKEN || !OPENAI_API_KEY) {
   console.error("One or more environment variables are not set in .env file");
   process.exit(1);
 }
