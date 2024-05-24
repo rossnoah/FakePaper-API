@@ -34,6 +34,7 @@ app.use(
   cors({
     origin: "*",
     allowMethods: ["GET", "POST"],
+    allowHeaders: ["Authorization", "Content-Type"],
   })
 ); // Enable CORS for all routes
 
