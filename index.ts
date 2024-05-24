@@ -123,7 +123,11 @@ app.post("/api/generate", async (c: Context) => {
     });
   } catch (error) {
     console.error(error);
-    return c.text("An error occurred while processing the request", 500);
+    return c.text(
+      "An error occurred while processing the request: " +
+        JSON.stringify(error),
+      500
+    );
   }
 });
 
