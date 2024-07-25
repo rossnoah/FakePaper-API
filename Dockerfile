@@ -16,13 +16,14 @@ COPY . .
 # Compile TypeScript code
 RUN npm run build
 
+# Verify the build output
+RUN ls -l dist
+
 # Install TeX Live (basic scheme to reduce image size; adjust as needed)
-# RUN apt-get update && apt-get install texlive-full -y
 RUN apt-get update && apt-get install -y \
     texlive-base \
     texlive-latex-base \
     && apt-get clean
-
 
 # Expose the port your app runs on
 EXPOSE 3000
