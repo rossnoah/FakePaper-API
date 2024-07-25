@@ -1,8 +1,11 @@
-# Use the official Node.js 22 image as a base
+# Use the official Node.js image as the base image
 FROM node:22
 
-# Set the working directory in the container
-WORKDIR /usr/src/app
+# Set the working directory inside the container
+WORKDIR /app
+
+# Copy package.json and package-lock.json files to the working directory
+COPY package*.json ./
 
 # Install TeX Live (basic scheme to reduce image size; adjust as needed)
 RUN apt-get update && apt-get install -y \
@@ -10,20 +13,17 @@ RUN apt-get update && apt-get install -y \
     texlive-latex-base \
     && apt-get clean
 
-# Copy the rest of your application's code
-COPY . .
-
-# Install dependencies
+# Install the dependencies
 RUN npm install
 
-# Compile TypeScript code
+# Copy the rest of the application code to the working directory
+COPY . .
+
+# Build the TypeScript code
 RUN npm run build
 
-
-# Expose the port your app runs on
+# Expose the port the application runs on
 EXPOSE 3000
 
-# Command to run your app
-# CMD ["node", "dist/index.js"]
-# run with npm start
-CMD ["npm", "start"]
+# Define the command to run the application
+CMD ["node", "dist/index.js"]

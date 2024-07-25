@@ -1,15 +1,14 @@
-version: "3.8"
+version: '3.8'
+
 services:
   app:
     build: .
+    container_name: node_app
     ports:
-      - "3000:3000" #set to whichever port you want
-    env_file:
-      - .env
-    environment:
-      - NODE_ENV=production
+      - "3000:3000"
     volumes:
-      - .:/usr/src/app
-      - /usr/src/app/node_modules
-      - /usr/src/app/dist #
-    restart: unless-stopped
+      - .:/app
+      - /app/node_modules
+    command: npm run start
+    environment:
+      - NODE_ENV=development
