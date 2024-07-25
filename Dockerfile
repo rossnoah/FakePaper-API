@@ -1,5 +1,5 @@
-# Use the official Node.js 18 image as a base
-FROM node:18
+# Use the official Node.js 22 image as a base
+FROM node:22
 
 # Set the working directory in the container
 WORKDIR /usr/src/app
@@ -17,7 +17,12 @@ COPY . .
 RUN npm run build
 
 # Install TeX Live (basic scheme to reduce image size; adjust as needed)
-RUN apt-get update && apt-get install texlive-full -y
+# RUN apt-get update && apt-get install texlive-full -y
+RUN apt-get update && apt-get install -y \
+    texlive-base \
+    texlive-latex-base \
+    && apt-get clean
+
 
 # Expose the port your app runs on
 EXPOSE 3000
