@@ -3,7 +3,7 @@ import { openai } from ".";
 export async function buildPrompt(userPrompt: string): Promise<string | null> {
   try {
     const completion = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo",
+      model: "gpt-4o-mini",
       messages: [
         {
           role: "system",
@@ -36,7 +36,7 @@ export async function generateLatex(
     const completion = await openai.chat.completions.create({
       //   model: "gpt-4-turbo-preview",
       //   model: "gpt-3.5-turbo",
-      model: isPremium ? "gpt-4-turbo-preview" : "gpt-3.5-turbo",
+      model: isPremium ? "gpt-4o" : "gpt-4o-mini",
 
       messages: [
         {
