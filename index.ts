@@ -13,6 +13,7 @@ import rateLimit from "express-rate-limit";
 dotenv.config();
 
 const app = express();
+app.set("trust proxy", 1);
 
 const AUTH_TOKEN = process.env.AUTH_TOKEN;
 const BLOB_READ_WRITE_TOKEN = process.env.BLOB_READ_WRITE_TOKEN;
