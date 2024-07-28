@@ -103,6 +103,11 @@ app.post("/api/generate", async (c: Context) => {
     }
 
     const { topic, isPremium } = body;
+
+    if (isPremium) {
+      return c.text("Premium requests are no longer supported");
+    }
+
     const generatedPrompt = await buildPrompt(topic);
     if (!generatedPrompt) {
       return c.text("An error occurred while building the prompt", 500);
