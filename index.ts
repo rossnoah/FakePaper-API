@@ -103,16 +103,16 @@ function extractTitleFromLatex(latexString: string): string {
   return title;
 }
 
-// Rate limiter to 1 requests per minute and 10 requests per 24 hours
+// Rate limiter to 5 requests per minute and 20 requests per 24 hours
 const shortTermLimiter = rateLimit({
   windowMs: 1 * 60 * 1000, // 2 minutes
-  max: 1,
+  max: 5,
   message: "Too many requests from this IP, please try again after 1 minute",
 });
 
 const longTermLimiter = rateLimit({
   windowMs: 24 * 60 * 60 * 1000, // 24 hours
-  max: 10,
+  max: 20,
   message: "Too many requests from this IP, please try again after 24 hours",
 });
 
