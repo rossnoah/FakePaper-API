@@ -135,7 +135,7 @@ app.post("/api/generate", async (c: Context) => {
     cleanupTempFiles(tmpDir);
 
     const blobPath = blob.url.split("/").slice(3);
-    const customURL = SITE_URL + `/storage/${blobPath}`;
+    const customURL = `/storage/${blobPath}`;
 
     return c.json({
       message: "PDF successfully generated and uploaded.",
