@@ -18,6 +18,7 @@ const AUTH_TOKEN = process.env.AUTH_TOKEN;
 const BLOB_READ_WRITE_TOKEN = process.env.BLOB_READ_WRITE_TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const PORT = (process.env.PORT as unknown as number) || 3000;
+const SITE_URL = process.env.SITE_URL;
 
 if (!AUTH_TOKEN || !BLOB_READ_WRITE_TOKEN || !OPENAI_API_KEY) {
   console.error("One or more environment variables are not set in .env file");
@@ -133,10 +134,13 @@ app.post("/api/generate", async (c: Context) => {
     const blob = await put(filename, pdfBuffer, { access: "public" });
     cleanupTempFiles(tmpDir);
 
+    const blobPath = blob.pathname;
+    const customURL = SITE_URL + `/storage/${blobPath}`;
+
     return c.json({
       message: "PDF successfully generated and uploaded.",
       title: title,
-      url: blob.url,
+      url: customURL,
     });
   } catch (error) {
     console.error(error);
