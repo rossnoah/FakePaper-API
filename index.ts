@@ -9,6 +9,7 @@ import { put } from "@vercel/blob";
 import { spawn } from "child_process";
 import OpenAI from "openai";
 import { serve } from "@hono/node-server";
+import rateLimit from "express-rate-limit";
 
 dotenv.config();
 
@@ -95,6 +96,22 @@ function extractTitleFromLatex(latexString: string): string {
   title = title.replace("\\\\", " ");
   return title;
 }
+
+// rate limter to 2 per 60 seconds and 10 per 24 hours
+const shortTermLimiter = rateLimit({
+  windowMs: 60 * 1000, // 60 seconds
+  max: 2, // Limit each IP to 2 requests per windowMs
+  message: "Too many requests from this IP, please try again after a minute",
+});
+
+const longTermLimiter = rateLimit({
+  windowMs: 24 * 60 * 60 * 1000, // 24 hours
+  max: 10, // Limit each IP to 10 requests per windowMs
+  message: "Too many requests from this IP, please try again after 24 hours",
+});
+
+app.use("/api/generate", shortTermLimiter);
+app.use("/api/generate", longTermLimiter);
 
 app.post("/api/generate", async (c: Context) => {
   try {
