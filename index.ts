@@ -134,7 +134,7 @@ app.post("/api/generate", async (c: Context) => {
     const blob = await put(filename, pdfBuffer, { access: "public" });
     cleanupTempFiles(tmpDir);
 
-    const blobPath = blob.pathname;
+    const blobPath = blob.url.split("/").slice(3);
     const customURL = SITE_URL + `/storage/${blobPath}`;
 
     return c.json({
