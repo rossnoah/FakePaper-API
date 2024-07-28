@@ -49,6 +49,9 @@ app.get("/api/generate", (req, res) => {
   res.status(400).send("You must POST to /api/generate");
 });
 
+// Job Queue
+const jobQueue: { [key: string]: any } = {};
+
 // Util function to validate request body
 function validateRequestBody(
   body: any
@@ -117,63 +120,80 @@ app.use("/api/generate", shortTermLimiter);
 app.use("/api/generate", longTermLimiter);
 
 app.post("/api/generate", async (req, res) => {
-  try {
-    const body = req.body;
-    if (!validateRequestBody(body)) {
-      return res.status(400).send("Invalid request");
+  const jobId = uuidv4();
+  jobQueue[jobId] = { status: "queued" };
+
+  const body = req.body;
+  if (!validateRequestBody(body)) {
+    delete jobQueue[jobId];
+    return res.status(400).send("Invalid request");
+  }
+
+  const { topic, isPremium } = body;
+
+  // Process job asynchronously
+  (async () => {
+    try {
+      const generatedPrompt = await buildPrompt(topic);
+      if (!generatedPrompt) {
+        jobQueue[jobId].status = "error";
+        jobQueue[jobId].message = "Failed to build prompt";
+        return;
+      }
+
+      const response = await generateLatex(generatedPrompt, isPremium);
+      if (!response) {
+        jobQueue[jobId].status = "error";
+        jobQueue[jobId].message = "Failed to generate LaTeX string";
+        return;
+      }
+
+      const latexString = cleanLatex(response);
+      const title = extractTitleFromLatex(latexString);
+
+      const tmpDir = fs.mkdtempSync(path.join(__dirname, "tmp-"));
+      const outputPath = await generatePdfFromLatex(latexString, tmpDir);
+
+      if (!outputPath) {
+        jobQueue[jobId].status = "error";
+        jobQueue[jobId].message = "Failed to generate PDF";
+        return;
+      }
+
+      const pdfBuffer = fs.readFileSync(outputPath);
+      const filename = path.basename(outputPath);
+      const blob = await put(filename, pdfBuffer, { access: "public" });
+      cleanupTempFiles(tmpDir);
+
+      const blobPath = blob.url.split("/").slice(3);
+      const customURL = `/storage/${blobPath}`;
+
+      jobQueue[jobId].status = "completed";
+      jobQueue[jobId].url = customURL;
+      jobQueue[jobId].title = title;
+    } catch (error) {
+      console.error(error);
+      jobQueue[jobId].status = "error";
+      jobQueue[jobId].message =
+        "An error occurred while processing the request";
     }
+  })();
 
-    const { topic, isPremium } = body;
+  res.json({ jobId });
+});
 
-    if (isPremium) {
-      return res.status(400).send("Premium requests are no longer supported");
-    }
+app.get("/api/status/:jobId", (req, res) => {
+  const jobId = req.params.jobId;
+  const job = jobQueue[jobId];
 
-    const generatedPrompt = await buildPrompt(topic);
-    if (!generatedPrompt) {
-      return res
-        .status(500)
-        .send("An error occurred while building the prompt");
-    }
+  if (!job) {
+    return res.status(404).json({ error: "Job not found" });
+  }
 
-    const response = await generateLatex(generatedPrompt, isPremium);
-    if (!response) {
-      return res
-        .status(500)
-        .send("An error occurred while generating LaTeX string");
-    }
+  res.json(job);
 
-    const latexString = cleanLatex(response);
-    const title = extractTitleFromLatex(latexString);
-
-    const tmpDir = fs.mkdtempSync(path.join(__dirname, "tmp-"));
-    const outputPath = await generatePdfFromLatex(latexString, tmpDir);
-
-    if (!outputPath) {
-      return res.status(500).send("An error occurred while generating PDF");
-    }
-
-    const pdfBuffer = fs.readFileSync(outputPath);
-    const filename = path.basename(outputPath);
-    const blob = await put(filename, pdfBuffer, { access: "public" });
-    cleanupTempFiles(tmpDir);
-
-    const blobPath = blob.url.split("/").slice(3);
-    const customURL = `/storage/${blobPath}`;
-
-    res.json({
-      message: "PDF successfully generated and uploaded.",
-      title: title,
-      url: customURL,
-    });
-  } catch (error) {
-    console.error(error);
-    res
-      .status(500)
-      .send(
-        "An error occurred while processing the request: " +
-          JSON.stringify(error)
-      );
+  if (job.status === "completed" || job.status === "error") {
+    delete jobQueue[jobId]; // Remove the job from the queue after status is checked
   }
 });
 
