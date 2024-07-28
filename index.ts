@@ -41,7 +41,7 @@ app.use(
 app.use(express.json()); // Parse JSON bodies
 
 app.get("/", (req, res) => {
-  res.send("LaTeX to PDF API is running!");
+  res.json({ status: "ok", message: "Generation API is running!" });
 });
 
 app.get("/api/generate", (req, res) => {
@@ -99,11 +99,11 @@ function extractTitleFromLatex(latexString: string): string {
   return title;
 }
 
-// Rate limiter to 2 requests per minute and 10 requests per 24 hours
+// Rate limiter to 1 requests per minute and 10 requests per 24 hours
 const shortTermLimiter = rateLimit({
   windowMs: 1 * 60 * 1000, // 2 minutes
-  max: 2,
-  message: "Too many requests from this IP, please try again after 2 minutes",
+  max: 1,
+  message: "Too many requests from this IP, please try again after 1 minute",
 });
 
 const longTermLimiter = rateLimit({
