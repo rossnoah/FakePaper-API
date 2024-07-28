@@ -1,5 +1,5 @@
-import { Context, Hono } from "hono";
-import { cors } from "hono/cors";
+import express from "express";
+import cors from "cors";
 import dotenv from "dotenv";
 import { buildPrompt, cleanLatex, generateLatex } from "./generator"; // Adjust the import path as needed
 import fs from "fs";
@@ -8,12 +8,11 @@ import { v4 as uuidv4 } from "uuid";
 import { put } from "@vercel/blob";
 import { spawn } from "child_process";
 import OpenAI from "openai";
-import { serve } from "@hono/node-server";
 import rateLimit from "express-rate-limit";
 
 dotenv.config();
 
-const app = new Hono();
+const app = express();
 
 const AUTH_TOKEN = process.env.AUTH_TOKEN;
 const BLOB_READ_WRITE_TOKEN = process.env.BLOB_READ_WRITE_TOKEN;
@@ -27,24 +26,27 @@ if (!AUTH_TOKEN || !BLOB_READ_WRITE_TOKEN || !OPENAI_API_KEY) {
 }
 
 export const openai = new OpenAI({
-  apiKey: OPENAI_API_KEY, // This can be omitted if it's the same as the key name
+  apiKey: OPENAI_API_KEY,
 });
 
 // Middleware
 app.use(
-  "*",
   cors({
     origin: "*",
-    allowMethods: ["GET", "POST"],
-    allowHeaders: ["Authorization", "Content-Type"],
+    methods: ["GET", "POST"],
+    allowedHeaders: ["Authorization", "Content-Type"],
   })
 ); // Enable CORS for all routes
 
-app.get("/", (c: Context) => c.text("LaTeX to PDF API is running!"));
+app.use(express.json()); // Parse JSON bodies
 
-app.get("/api/generate", async (c: Context) =>
-  c.text("You must POST to /api/generate", 400)
-);
+app.get("/", (req, res) => {
+  res.send("LaTeX to PDF API is running!");
+});
+
+app.get("/api/generate", (req, res) => {
+  res.status(400).send("You must POST to /api/generate");
+});
 
 // Util function to validate request body
 function validateRequestBody(
@@ -97,11 +99,11 @@ function extractTitleFromLatex(latexString: string): string {
   return title;
 }
 
-// rate limter to 2 per 60 seconds and 10 per 24 hours
+// Rate limiter to 100 requests per 15 minutes and 10 requests per 24 hours
 const shortTermLimiter = rateLimit({
-  windowMs: 60 * 1000, // 60 seconds
-  max: 2, // Limit each IP to 2 requests per windowMs
-  message: "Too many requests from this IP, please try again after a minute",
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Limit each IP to 100 requests per windowMs
+  message: "Too many requests from this IP, please try again after 15 minutes",
 });
 
 const longTermLimiter = rateLimit({
@@ -113,27 +115,31 @@ const longTermLimiter = rateLimit({
 app.use("/api/generate", shortTermLimiter);
 app.use("/api/generate", longTermLimiter);
 
-app.post("/api/generate", async (c: Context) => {
+app.post("/api/generate", async (req, res) => {
   try {
-    const body = await c.req.json();
+    const body = req.body;
     if (!validateRequestBody(body)) {
-      return c.text("Invalid request", 400);
+      return res.status(400).send("Invalid request");
     }
 
     const { topic, isPremium } = body;
 
     if (isPremium) {
-      return c.text("Premium requests are no longer supported");
+      return res.status(400).send("Premium requests are no longer supported");
     }
 
     const generatedPrompt = await buildPrompt(topic);
     if (!generatedPrompt) {
-      return c.text("An error occurred while building the prompt", 500);
+      return res
+        .status(500)
+        .send("An error occurred while building the prompt");
     }
 
     const response = await generateLatex(generatedPrompt, isPremium);
     if (!response) {
-      return c.text("An error occurred while generating LaTeX string", 500);
+      return res
+        .status(500)
+        .send("An error occurred while generating LaTeX string");
     }
 
     const latexString = cleanLatex(response);
@@ -143,7 +149,7 @@ app.post("/api/generate", async (c: Context) => {
     const outputPath = await generatePdfFromLatex(latexString, tmpDir);
 
     if (!outputPath) {
-      return c.text("An error occurred while generating PDF", 500);
+      return res.status(500).send("An error occurred while generating PDF");
     }
 
     const pdfBuffer = fs.readFileSync(outputPath);
@@ -154,27 +160,25 @@ app.post("/api/generate", async (c: Context) => {
     const blobPath = blob.url.split("/").slice(3);
     const customURL = `/storage/${blobPath}`;
 
-    return c.json({
+    res.json({
       message: "PDF successfully generated and uploaded.",
       title: title,
       url: customURL,
     });
   } catch (error) {
     console.error(error);
-    return c.text(
-      "An error occurred while processing the request: " +
-        JSON.stringify(error),
-      500
-    );
+    res
+      .status(500)
+      .send(
+        "An error occurred while processing the request: " +
+          JSON.stringify(error)
+      );
   }
 });
 
-serve({
-  fetch: app.fetch,
-  port: PORT,
+app.listen(PORT, () => {
+  console.log(`Server running on http://localhost:${PORT}`);
 });
-
-console.log(`Server running on port http://localhost:${PORT}`);
 
 function cleanupTempFiles(dir: string) {
   fs.readdirSync(dir).forEach((file) => {
