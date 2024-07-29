@@ -51,6 +51,7 @@ app.get("/api/generate", (req, res) => {
 
 // Job Queue
 const jobQueue: { [key: string]: any } = {};
+const JOB_TIMEOUT = 60000; // 60 seconds
 
 // Util function to validate request body
 function validateRequestBody(
@@ -121,7 +122,7 @@ app.use("/api/generate", longTermLimiter);
 
 app.post("/api/generate", async (req, res) => {
   const jobId = uuidv4();
-  jobQueue[jobId] = { status: "queued" };
+  jobQueue[jobId] = { status: "queued", timestamp: Date.now() };
 
   const body = req.body;
   if (!validateRequestBody(body)) {
@@ -190,15 +191,12 @@ app.get("/api/status/:jobId", (req, res) => {
     return res.status(404).json({ error: "Job not found" });
   }
 
+  jobQueue[jobId].timestamp = Date.now(); // Update timestamp on access
   res.json(job);
 
   if (job.status === "completed" || job.status === "error") {
     delete jobQueue[jobId]; // Remove the job from the queue after status is checked
   }
-});
-
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
 });
 
 function cleanupTempFiles(dir: string) {
@@ -208,3 +206,22 @@ function cleanupTempFiles(dir: string) {
   });
   fs.rmdirSync(dir);
 }
+
+// Function to clean up abandoned jobs
+function cleanUpAbandonedJobs() {
+  const now = Date.now();
+  Object.keys(jobQueue).forEach((jobId) => {
+    const job = jobQueue[jobId];
+    if (now - job.timestamp > JOB_TIMEOUT) {
+      console.log(`Job ${jobId} abandoned and removed from queue`);
+      delete jobQueue[jobId];
+    }
+  });
+}
+
+// Run cleanup function at regular intervals
+setInterval(cleanUpAbandonedJobs, 60000); // Every 60 seconds
+
+app.listen(PORT, () => {
+  console.log(`Server running on http://localhost:${PORT}`);
+});
