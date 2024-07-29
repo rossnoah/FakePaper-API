@@ -42,10 +42,12 @@ app.use(
 app.use(express.json()); // Parse JSON bodies
 
 app.get("/", (req, res) => {
+  console.log("Received request at /");
   res.json({ status: "ok", message: "Generation API is running!" });
 });
 
 app.get("/api/generate", (req, res) => {
+  console.log("Received GET request at /api/generate");
   res.status(400).send("You must POST to /api/generate");
 });
 
@@ -124,8 +126,11 @@ app.post("/api/generate", async (req, res) => {
   const jobId = uuidv4();
   jobQueue[jobId] = { status: "queued", timestamp: Date.now() };
 
+  console.log(`Received POST request at /api/generate with jobId: ${jobId}`);
+
   const body = req.body;
   if (!validateRequestBody(body)) {
+    console.log(`Invalid request body for jobId: ${jobId}`);
     delete jobQueue[jobId];
     return res.status(400).send("Invalid request");
   }
@@ -135,15 +140,19 @@ app.post("/api/generate", async (req, res) => {
   // Process job asynchronously
   (async () => {
     try {
+      console.log(`Building prompt for jobId: ${jobId}`);
       const generatedPrompt = await buildPrompt(topic);
       if (!generatedPrompt) {
+        console.log(`Failed to build prompt for jobId: ${jobId}`);
         jobQueue[jobId].status = "error";
         jobQueue[jobId].message = "Failed to build prompt";
         return;
       }
 
+      console.log(`Generating LaTeX for jobId: ${jobId}`);
       const response = await generateLatex(generatedPrompt, isPremium);
       if (!response) {
+        console.log(`Failed to generate LaTeX string for jobId: ${jobId}`);
         jobQueue[jobId].status = "error";
         jobQueue[jobId].message = "Failed to generate LaTeX string";
         return;
@@ -153,9 +162,11 @@ app.post("/api/generate", async (req, res) => {
       const title = extractTitleFromLatex(latexString);
 
       const tmpDir = fs.mkdtempSync(path.join(__dirname, "tmp-"));
+      console.log(`Generating PDF for jobId: ${jobId}`);
       const outputPath = await generatePdfFromLatex(latexString, tmpDir);
 
       if (!outputPath) {
+        console.log(`Failed to generate PDF for jobId: ${jobId}`);
         jobQueue[jobId].status = "error";
         jobQueue[jobId].message = "Failed to generate PDF";
         return;
@@ -172,8 +183,9 @@ app.post("/api/generate", async (req, res) => {
       jobQueue[jobId].status = "completed";
       jobQueue[jobId].url = customURL;
       jobQueue[jobId].title = title;
+      console.log(`Job completed successfully for jobId: ${jobId}`);
     } catch (error) {
-      console.error(error);
+      console.error(`Error processing jobId: ${jobId}`, error);
       jobQueue[jobId].status = "error";
       jobQueue[jobId].message =
         "An error occurred while processing the request";
@@ -185,9 +197,11 @@ app.post("/api/generate", async (req, res) => {
 
 app.get("/api/status/:jobId", (req, res) => {
   const jobId = req.params.jobId;
+  console.log(`Received status request for jobId: ${jobId}`);
   const job = jobQueue[jobId];
 
   if (!job) {
+    console.log(`Job not found for jobId: ${jobId}`);
     return res.status(404).json({ error: "Job not found" });
   }
 
@@ -195,6 +209,7 @@ app.get("/api/status/:jobId", (req, res) => {
   res.json(job);
 
   if (job.status === "completed" || job.status === "error") {
+    console.log(`Cleaning up jobId: ${jobId}`);
     delete jobQueue[jobId]; // Remove the job from the queue after status is checked
   }
 });
