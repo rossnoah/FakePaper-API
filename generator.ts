@@ -24,6 +24,7 @@ export async function buildPrompt(userPrompt: string): Promise<string | null> {
 
     return completion.choices[0].message.content;
   } catch (e) {
+    console.log("Failed to build prompt.",e)
     return null;
   }
 }
