@@ -5,7 +5,6 @@ import { buildPrompt, cleanLatex, generateLatex } from "./generator"; // Adjust 
 import fs from "fs";
 import path from "path";
 import { v4 as uuidv4 } from "uuid";
-import { put } from "@vercel/blob";
 import { spawn } from "child_process";
 import OpenAI from "openai";
 import rateLimit from "express-rate-limit";
@@ -16,12 +15,11 @@ const app = express();
 app.set("trust proxy", 1);
 
 const AUTH_TOKEN = process.env.AUTH_TOKEN;
-const BLOB_READ_WRITE_TOKEN = process.env.BLOB_READ_WRITE_TOKEN;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const PORT = (process.env.PORT as unknown as number) || 3000;
 const SITE_URL = process.env.SITE_URL;
 
-if (!AUTH_TOKEN || !BLOB_READ_WRITE_TOKEN || !OPENAI_API_KEY) {
+if (!AUTH_TOKEN || !OPENAI_API_KEY) {
   console.error("One or more environment variables are not set in .env file");
   process.exit(1);
 }
@@ -54,6 +52,32 @@ app.get("/api/generate", (req, res) => {
 // Job Queue
 const jobQueue: { [key: string]: any } = {};
 const JOB_TIMEOUT = 60000; // 60 seconds
+
+// Interface for Storage Service
+interface IStorageService {
+  uploadFile(filename: string, buffer: Buffer): Promise<string>;
+}
+
+// Vercel Blob Storage Service
+class VercelBlobStorage implements IStorageService {
+  private BLOB_READ_WRITE_TOKEN: string;
+
+  constructor(blobReadWriteToken: string) {
+    if (!blobReadWriteToken) {
+      throw new Error("BLOB_READ_WRITE_TOKEN is required for VercelBlobStorage");
+    }
+    this.BLOB_READ_WRITE_TOKEN = blobReadWriteToken;
+  }
+
+  async uploadFile(filename: string, buffer: Buffer): Promise<string> {
+    const { put } = await import("@vercel/blob");
+    const blob = await put(filename, buffer, { access: "public" });
+    return blob.url;
+  }
+}
+
+// Instantiate the Vercel Blob Storage service
+const storageService: IStorageService = new VercelBlobStorage(process.env.BLOB_READ_WRITE_TOKEN!);
 
 // Util function to validate request body
 function validateRequestBody(
@@ -174,14 +198,12 @@ app.post("/api/generate", async (req, res) => {
 
       const pdfBuffer = fs.readFileSync(outputPath);
       const filename = path.basename(outputPath);
-      const blob = await put(filename, pdfBuffer, { access: "public" });
+      const url = await storageService.uploadFile(filename, pdfBuffer);
+
       cleanupTempFiles(tmpDir);
 
-      const blobPath = blob.url.split("/").slice(3);
-      const customURL = `/storage/${blobPath}`;
-
       jobQueue[jobId].status = "completed";
-      jobQueue[jobId].url = customURL;
+      jobQueue[jobId].url = url;
       jobQueue[jobId].title = title;
       console.log(`Job completed successfully for jobId: ${jobId}`);
     } catch (error) {
