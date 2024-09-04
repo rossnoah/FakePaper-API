@@ -39,12 +39,14 @@ export class S3StorageService implements IStorageService {
         Bucket: this.bucketName,
         Key: filename,
         Body: buffer,
+        ContentType: "application/pdf",
+        ContentDisposition: "inline",
       });
 
       await this.s3Client.send(command);
 
       // Construct the public URL of the file
-      const url = `https://${this.bucketName}.s3.${this.region}.amazonaws.com/${filename}`;
+      const url = `/s3/${filename}`;
       return url;
     } catch (error) {
       throw new Error(
