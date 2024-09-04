@@ -5,6 +5,7 @@ import { Buffer } from "buffer";
 export class S3StorageService implements IStorageService {
   private s3Client: S3Client;
   private bucketName: string;
+  private region: string;
 
   constructor() {
     // Fetch region and bucket name from environment variables
@@ -29,6 +30,7 @@ export class S3StorageService implements IStorageService {
       },
     });
     this.bucketName = bucketName;
+    this.region = region;
   }
 
   async uploadFile(filename: string, buffer: Buffer): Promise<string> {
@@ -42,7 +44,7 @@ export class S3StorageService implements IStorageService {
       await this.s3Client.send(command);
 
       // Construct the public URL of the file
-      const url = `https://${this.bucketName}.s3.${this.s3Client.config.region}.amazonaws.com/${filename}`;
+      const url = `https://${this.bucketName}.s3.${this.region}.amazonaws.com/${filename}`;
       return url;
     } catch (error) {
       throw new Error(
