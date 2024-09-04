@@ -8,6 +8,9 @@ import { v4 as uuidv4 } from "uuid";
 import { spawn } from "child_process";
 import OpenAI from "openai";
 import rateLimit from "express-rate-limit";
+import { IStorageService } from "./storage/storage";
+import { VercelBlobStorage } from "./storage/vercelblob";
+import { S3StorageService } from "./storage/s3aws";
 
 dotenv.config();
 
@@ -53,31 +56,8 @@ app.get("/api/generate", (req, res) => {
 const jobQueue: { [key: string]: any } = {};
 const JOB_TIMEOUT = 60000; // 60 seconds
 
-// Interface for Storage Service
-interface IStorageService {
-  uploadFile(filename: string, buffer: Buffer): Promise<string>;
-}
-
-// Vercel Blob Storage Service
-class VercelBlobStorage implements IStorageService {
-  private BLOB_READ_WRITE_TOKEN: string;
-
-  constructor(blobReadWriteToken: string) {
-    if (!blobReadWriteToken) {
-      throw new Error("BLOB_READ_WRITE_TOKEN is required for VercelBlobStorage");
-    }
-    this.BLOB_READ_WRITE_TOKEN = blobReadWriteToken;
-  }
-
-  async uploadFile(filename: string, buffer: Buffer): Promise<string> {
-    const { put } = await import("@vercel/blob");
-    const blob = await put(filename, buffer, { access: "public" });
-    return blob.url;
-  }
-}
-
 // Instantiate the Vercel Blob Storage service
-const storageService: IStorageService = new VercelBlobStorage(process.env.BLOB_READ_WRITE_TOKEN!);
+const storageService: IStorageService = new S3StorageService();
 
 // Util function to validate request body
 function validateRequestBody(
@@ -130,10 +110,10 @@ function extractTitleFromLatex(latexString: string): string {
   return title;
 }
 
-// Rate limiter to 5 requests per minute and 20 requests per 24 hours
+// Rate limiter to 2 requests per minute and 20 requests per 24 hours
 const shortTermLimiter = rateLimit({
-  windowMs: 1 * 60 * 1000, // 2 minutes
-  max: 5,
+  windowMs: 1 * 60 * 1000, // 1 minutes
+  max: 2,
   message: "Too many requests from this IP, please try again after 1 minute",
 });
 

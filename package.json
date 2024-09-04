@@ -6,11 +6,12 @@
   "scripts": {
     "start": "node dist/index.js",
     "build": "tsc",
-    "dev": "tsx watch index.ts"
+    "dev": "tsx watch src/index.ts"
   },
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.637.0",
     "@vercel/blob": "^0.22.3",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
