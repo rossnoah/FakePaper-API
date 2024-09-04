@@ -37,7 +37,6 @@ export class S3StorageService implements IStorageService {
         Bucket: this.bucketName,
         Key: filename,
         Body: buffer,
-        ACL: "public-read", // Makes the file publicly accessible
       });
 
       await this.s3Client.send(command);
