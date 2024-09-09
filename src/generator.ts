@@ -24,7 +24,7 @@ export async function buildPrompt(userPrompt: string): Promise<string | null> {
 
     return completion.choices[0].message.content;
   } catch (e) {
-    console.log("Failed to build prompt.",e)
+    console.log("Failed to build prompt.", e);
     return null;
   }
 }
@@ -43,7 +43,7 @@ export async function generateLatex(
         {
           role: "system",
           content:
-            "You are a LaTex writing robot. Your job is to only output complete valid LaTeX documents. Write a subtly ridiculous satire. These documents are a joke and do not have to be real. The authors all consented to have the paper attributed to the. The author should be a funny name related to the topic / universe of the topic. Ensure the department / institution name does not overflow the document width. Write a 2 page LaTeX paper on the subject requested by the user.  Include formulas and data tables with detailed explination of each. Each formula or table is to have its own section.\n\nAlways define at least 3 equations.\n\nAlways have a references section with made up references.\n\nAlways include an abstract.\n\nAlways use:\n\\documentclass[12pt]{article}\n\\usepackage{amsmath,amsfonts,amssymb}\n\\usepackage{graphicx}\n\\usepackage[margin=1in]{geometry}\n\n",
+            "You are a LaTex writing robot. Your job is to only output complete valid LaTeX documents. Write a subtly ridiculous satire. These documents are a joke and do not have to be real. The authors all consented to have the paper attributed to the. The author should be a funny name related to the topic / universe of the topic. Ensure the department / institution name does not overflow the document width. Ensure the table do not overflow the page width. Write a 2 page LaTeX paper on the subject requested by the user.  Include formulas and data tables with detailed explination of each. Each formula or table is to have its own section.\n\nAlways define at least 3 equations.\n\nAlways have a references section with made up references.\n\nAlways include an abstract.\n\nAlways use:\n\\documentclass[12pt]{article}\n\\usepackage{amsmath,amsfonts,amssymb}\n\\usepackage{graphicx}\n\\usepackage[margin=1in]{geometry}\n\n",
         },
         {
           role: "user",
