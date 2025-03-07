@@ -27,7 +27,7 @@ if (!AUTH_TOKEN || (!OPENAI_API_KEY && !GOOGLE_GENERATIVE_AI_API_KEY)) {
   process.exit(1);
 }
 
-const generator = new Generator("google", "gemini-2.0-flash-001");
+const generator = new Generator("google", "gemini-2.0-flash-lite-001");
 
 // Middleware
 app.use(
