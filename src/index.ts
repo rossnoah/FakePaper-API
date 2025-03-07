@@ -1,15 +1,13 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import { buildPrompt, cleanLatex, generateLatex } from "./generator"; // Adjust the import path as needed
+import { cleanLatex, Generator } from "./generator"; // Adjust the import path as needed
 import fs from "fs";
 import path from "path";
 import { v4 as uuidv4 } from "uuid";
 import { spawn } from "child_process";
-import OpenAI from "openai";
 import rateLimit from "express-rate-limit";
 import { IStorageService } from "./storage/storage";
-import { VercelBlobStorage } from "./storage/vercelblob";
 import { S3StorageService } from "./storage/s3aws";
 
 dotenv.config();
@@ -18,18 +16,17 @@ const app = express();
 app.set("trust proxy", 1);
 
 const AUTH_TOKEN = process.env.AUTH_TOKEN;
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const PORT = (process.env.PORT as unknown as number) || 3000;
-const SITE_URL = process.env.SITE_URL;
 
-if (!AUTH_TOKEN || !OPENAI_API_KEY) {
+export const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+export const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY;
+
+if (!AUTH_TOKEN || (!OPENAI_API_KEY && !GOOGLE_API_KEY)) {
   console.error("One or more environment variables are not set in .env file");
   process.exit(1);
 }
 
-export const openai = new OpenAI({
-  apiKey: OPENAI_API_KEY,
-});
+const generator = new Generator("google", "gemini-2.0-flash-001");
 
 // Middleware
 app.use(
@@ -145,7 +142,7 @@ app.post("/api/generate", async (req, res) => {
   (async () => {
     try {
       console.log(`Building prompt for jobId: ${jobId}`);
-      const generatedPrompt = await buildPrompt(topic);
+      const generatedPrompt = await generator.buildPrompt(topic);
       if (!generatedPrompt) {
         console.log(`Failed to build prompt for jobId: ${jobId}`);
         jobQueue[jobId].status = "error";
@@ -154,7 +151,10 @@ app.post("/api/generate", async (req, res) => {
       }
 
       console.log(`Generating LaTeX for jobId: ${jobId}`);
-      const response = await generateLatex(generatedPrompt, isPremium);
+      const response = await generator.generateLatex(
+        generatedPrompt,
+        isPremium
+      );
       if (!response) {
         console.log(`Failed to generate LaTeX string for jobId: ${jobId}`);
         jobQueue[jobId].status = "error";
