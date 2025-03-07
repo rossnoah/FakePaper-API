@@ -1,11 +1,11 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import { cleanLatex, Generator } from "./generator"; // Adjust the import path as needed
+import { cleanLatex, Generator } from "./generator";
 import fs from "fs";
 import path from "path";
 import { v4 as uuidv4 } from "uuid";
-import { spawn } from "child_process";
+import { exec } from "child_process";
 import rateLimit from "express-rate-limit";
 import { IStorageService } from "./storage/storage";
 import { S3StorageService } from "./storage/s3aws";
@@ -66,7 +66,6 @@ function validateRequestBody(
   );
 }
 
-// Async wrapper for LaTeX PDF generation process
 async function generatePdfFromLatex(
   latexString: string,
   tmpDir: string
@@ -75,37 +74,98 @@ async function generatePdfFromLatex(
     const uuid = uuidv4();
     const inputPath = path.join(tmpDir, `${uuid}.tex`);
     const outputPath = path.join(tmpDir, `${uuid}.pdf`);
-    fs.writeFileSync(inputPath, latexString);
-    let latexProcess;
+
     try {
-      latexProcess = spawn("pdflatex", [
-        "-output-directory",
-        tmpDir,
-        inputPath,
-      ]);
+      // Write LaTeX content to file
+      fs.writeFileSync(inputPath, latexString);
+
+      // Run pdflatex twice to ensure references are properly resolved
+      const runPdfLatex = (attempt = 1) => {
+        console.log(`Running pdflatex attempt ${attempt} for ${uuid}`);
+
+        const command = `pdflatex -interaction=nonstopmode -halt-on-error -output-directory="${tmpDir}" "${inputPath}"`;
+
+        exec(
+          command,
+          { maxBuffer: 1024 * 1024 * 10 },
+          (error, stdout, stderr) => {
+            if (error) {
+              console.error(`LaTeX compilation failed on attempt ${attempt}:`);
+              console.error(stderr || stdout);
+
+              if (attempt === 1) {
+                // Try to fix common LaTeX errors
+                let fixedLatex = latexString;
+                // Add missing packages that are commonly needed
+                if (!fixedLatex.includes("\\usepackage{amsmath}")) {
+                  fixedLatex = fixedLatex.replace(
+                    "\\begin{document}",
+                    "\\usepackage{amsmath}\n\\begin{document}"
+                  );
+                }
+                // Try again with fixed LaTeX
+                fs.writeFileSync(inputPath, fixedLatex);
+                runPdfLatex(2);
+              } else {
+                reject(`Failed to compile LaTeX document: ${error.message}`);
+              }
+              return;
+            }
+
+            if (attempt === 1) {
+              // Run second pass to resolve references
+              runPdfLatex(2);
+            } else {
+              // Check if PDF was actually created
+              if (fs.existsSync(outputPath)) {
+                resolve(outputPath);
+              } else {
+                // Sometimes pdflatex doesn't return an error code even when it fails
+                console.error(
+                  "PDF file was not created despite successful compilation"
+                );
+                console.log("LaTeX output:", stdout);
+                reject(
+                  "PDF file was not created despite successful compilation"
+                );
+              }
+            }
+          }
+        );
+      };
+
+      runPdfLatex();
     } catch (error) {
-      console.error(error);
+      console.error("Error in LaTeX generation:", error);
+      reject(`Error in LaTeX generation: ${error}`);
       return null;
     }
-
-    latexProcess.on("exit", (code) => {
-      if (code !== 0) {
-        cleanupTempFiles(tmpDir);
-        reject("Failed to compile LaTeX document.");
-      } else {
-        resolve(outputPath);
-      }
-    });
   });
 }
 
 function extractTitleFromLatex(latexString: string): string {
-  const titleRegex = /\\title{([^}]*)}/;
+  // Try to extract title with different patterns
+  const titlePatterns = [
+    /\\title{([^}]*)}/,
+    /\\section{([^}]*)}/,
+    /\\chapter{([^}]*)}/,
+    /\\documentclass[\s\S]*?\n[\s\S]*?\n([\s\S]*?)\\begin/,
+  ];
 
-  const titleMatch = latexString.match(titleRegex);
-  let title = titleMatch ? titleMatch[1] : "Untitled";
-  title = title.replace("\\\\", " ");
-  return title;
+  for (const pattern of titlePatterns) {
+    const match = latexString.match(pattern);
+    if (match && match[1]) {
+      // Clean up the title
+      let title = match[1].trim();
+      title = title.replace(/\\\\|\\newline|\\linebreak/g, " ");
+      title = title.replace(/\s+/g, " ");
+      // Remove any remaining LaTeX commands
+      title = title.replace(/\\[a-zA-Z]+(\{[^}]*\})?/g, "");
+      return title || "Untitled";
+    }
+  }
+
+  return "Untitled";
 }
 
 // Rate limiter to 2 requests per minute and 20 requests per 24 hours
@@ -141,6 +201,8 @@ app.post("/api/generate", async (req, res) => {
 
   // Process job asynchronously
   (async () => {
+    let tmpDir = null;
+
     try {
       console.log(`Building prompt for jobId: ${jobId}`);
       const generatedPrompt = await generator.buildPrompt(topic);
@@ -166,8 +228,13 @@ app.post("/api/generate", async (req, res) => {
       const latexString = cleanLatex(response);
       const title = extractTitleFromLatex(latexString);
 
-      const tmpDir = fs.mkdtempSync(path.join(__dirname, "tmp-"));
-      console.log(`Generating PDF for jobId: ${jobId}`);
+      // Create temporary directory with more unique name
+      tmpDir = fs.mkdtempSync(
+        path.join(__dirname, `tmp-${jobId.substring(0, 8)}-`)
+      );
+
+      console.log(`Generating PDF for jobId: ${jobId} in directory ${tmpDir}`);
+
       const outputPath = await generatePdfFromLatex(latexString, tmpDir);
 
       if (!outputPath) {
@@ -178,10 +245,16 @@ app.post("/api/generate", async (req, res) => {
       }
 
       const pdfBuffer = fs.readFileSync(outputPath);
-      const filename = path.basename(outputPath);
-      const url = await storageService.uploadFile(filename, pdfBuffer);
 
-      cleanupTempFiles(tmpDir);
+      // Create a more descriptive filename
+      const sanitizedTitle = title
+        .replace(/[^a-zA-Z0-9]/g, "_")
+        .replace(/_+/g, "_")
+        .substring(0, 50);
+      const filename = `${sanitizedTitle}-${jobId.substring(0, 8)}.pdf`;
+
+      console.log(`Uploading PDF with filename: ${filename}`);
+      const url = await storageService.uploadFile(filename, pdfBuffer);
 
       jobQueue[jobId].status = "completed";
       jobQueue[jobId].url = url;
@@ -191,7 +264,14 @@ app.post("/api/generate", async (req, res) => {
       console.error(`Error processing jobId: ${jobId}`, error);
       jobQueue[jobId].status = "error";
       jobQueue[jobId].message =
-        "An error occurred while processing the request";
+        error instanceof Error
+          ? `Error: ${error.message}`
+          : "An error occurred while processing the request";
+    } finally {
+      // Clean up temporary directory if it was created
+      if (tmpDir) {
+        cleanupTempFiles(tmpDir);
+      }
     }
   })();
 
@@ -213,16 +293,30 @@ app.get("/api/status/:jobId", (req, res) => {
 
   if (job.status === "completed" || job.status === "error") {
     console.log(`Cleaning up jobId: ${jobId}`);
-    delete jobQueue[jobId]; // Remove the job from the queue after status is checked
+    // Set a short timeout to ensure the client has time to receive the response
+    setTimeout(() => {
+      delete jobQueue[jobId]; // Remove the job from the queue after status is checked
+    }, 5000);
   }
 });
 
 function cleanupTempFiles(dir: string) {
-  fs.readdirSync(dir).forEach((file) => {
-    const curPath = path.join(dir, file);
-    fs.unlinkSync(curPath);
-  });
-  fs.rmdirSync(dir);
+  try {
+    if (fs.existsSync(dir)) {
+      fs.readdirSync(dir).forEach((file) => {
+        try {
+          const curPath = path.join(dir, file);
+          fs.unlinkSync(curPath);
+        } catch (err) {
+          console.error(`Failed to delete file ${file}:`, err);
+        }
+      });
+      fs.rmdirSync(dir);
+      console.log(`Successfully cleaned up directory: ${dir}`);
+    }
+  } catch (err) {
+    console.error(`Error cleaning up directory ${dir}:`, err);
+  }
 }
 
 // Function to clean up abandoned jobs
