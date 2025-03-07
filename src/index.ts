@@ -19,9 +19,10 @@ const AUTH_TOKEN = process.env.AUTH_TOKEN;
 const PORT = (process.env.PORT as unknown as number) || 3000;
 
 export const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-export const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY;
+export const GOOGLE_GENERATIVE_AI_API_KEY =
+  process.env.GOOGLE_GENERATIVE_AI_API_KEY;
 
-if (!AUTH_TOKEN || (!OPENAI_API_KEY && !GOOGLE_API_KEY)) {
+if (!AUTH_TOKEN || (!OPENAI_API_KEY && !GOOGLE_GENERATIVE_AI_API_KEY)) {
   console.error("One or more environment variables are not set in .env file");
   process.exit(1);
 }
