@@ -228,7 +228,11 @@ app.post("/api/generate", async (req, res) => {
       }
 
       const latexString = cleanLatex(response);
-      const title = extractTitleFromLatex(latexString);
+      let title = extractTitleFromLatex(latexString);
+      //if title starts with { remove it
+      if (title.startsWith("{")) {
+        title = title.slice(1);
+      }
 
       // Create temporary directory with more unique name
       tmpDir = fs.mkdtempSync(
