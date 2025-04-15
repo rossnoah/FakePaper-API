@@ -27,7 +27,7 @@ if (!AUTH_TOKEN || (!OPENAI_API_KEY && !GOOGLE_GENERATIVE_AI_API_KEY)) {
   process.exit(1);
 }
 
-const generator = new Generator("openai", "gpt-4o-mini");
+const generator = new Generator("openai", "gpt-4.1");
 
 // Middleware
 app.use(
