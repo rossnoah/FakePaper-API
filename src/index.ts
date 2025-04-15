@@ -205,6 +205,7 @@ app.post("/api/generate", async (req, res) => {
 
     try {
       console.log(`Building prompt for jobId: ${jobId}`);
+      jobQueue[jobId].status = "prompting";
       const generatedPrompt = await generator.buildPrompt(topic);
       if (!generatedPrompt) {
         console.log(`Failed to build prompt for jobId: ${jobId}`);
@@ -214,6 +215,7 @@ app.post("/api/generate", async (req, res) => {
       }
 
       console.log(`Generating LaTeX for jobId: ${jobId}`);
+      jobQueue[jobId].status = "generating";
       const response = await generator.generateLatex(
         generatedPrompt,
         isPremium
@@ -234,6 +236,7 @@ app.post("/api/generate", async (req, res) => {
       );
 
       console.log(`Generating PDF for jobId: ${jobId} in directory ${tmpDir}`);
+      jobQueue[jobId].status = "finalizing";
 
       const outputPath = await generatePdfFromLatex(latexString, tmpDir);
 
