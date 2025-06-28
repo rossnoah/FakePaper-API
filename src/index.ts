@@ -2,13 +2,14 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import { cleanLatex, Generator } from "./generator";
-import fs from "fs";
-import path from "path";
+import fs from "node:fs";
+import path from "node:path";
 import { v4 as uuidv4 } from "uuid";
-import { exec } from "child_process";
+import { exec } from "node:child_process";
 import rateLimit from "express-rate-limit";
-import { IStorageService } from "./storage/storage";
+import type { IStorageService } from "./storage/storage";
 import { S3StorageService } from "./storage/s3aws";
+import { PostHog } from "posthog-node";
 
 dotenv.config();
 
@@ -21,6 +22,28 @@ const PORT = (process.env.PORT as unknown as number) || 3000;
 export const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 export const GOOGLE_GENERATIVE_AI_API_KEY =
   process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+
+// Initialize PostHog client
+const posthog = new PostHog("phc_WhiUSvmIFslpw4vToxQdOuIJf1eiK5rH3MwIzXQjgbc", {
+  host: "https://us.i.posthog.com",
+});
+
+// Helper function to get client info from request
+function getClientInfo(req: express.Request) {
+  const forwarded = req.get("X-Forwarded-For");
+  const ip = forwarded
+    ? forwarded.split(",")[0]
+    : req.connection.remoteAddress || req.socket.remoteAddress || "unknown";
+  const userAgent = req.get("User-Agent") || "unknown";
+  const referer = req.get("Referer") || "direct";
+
+  return {
+    ip: ip.replace(/^::ffff:/, ""), // Remove IPv6 prefix if present
+    userAgent,
+    referer,
+    timestamp: new Date().toISOString(),
+  };
+}
 
 if (!AUTH_TOKEN || (!OPENAI_API_KEY && !GOOGLE_GENERATIVE_AI_API_KEY)) {
   console.error("One or more environment variables are not set in .env file");
@@ -42,16 +65,55 @@ app.use(express.json()); // Parse JSON bodies
 
 app.get("/", (req, res) => {
   console.log("Received request at /");
+
+  // Track homepage visit
+  const clientInfo = getClientInfo(req);
+  posthog.capture({
+    distinctId: clientInfo.ip,
+    event: "homepage_visited",
+    properties: {
+      ...clientInfo,
+      endpoint: "/",
+    },
+  });
+
   res.json({ status: "ok", message: "Generation API is running!" });
 });
 
 app.get("/api/generate", (req, res) => {
   console.log("Received GET request at /api/generate");
+
+  // Track invalid GET request
+  const clientInfo = getClientInfo(req);
+  posthog.capture({
+    distinctId: clientInfo.ip,
+    event: "invalid_get_request",
+    properties: {
+      ...clientInfo,
+      endpoint: "/api/generate",
+      method: "GET",
+    },
+  });
+
   res.status(400).send("You must POST to /api/generate");
 });
 
 // Job Queue
-const jobQueue: { [key: string]: any } = {};
+interface JobStatus {
+  status:
+    | "queued"
+    | "prompting"
+    | "generating"
+    | "finalizing"
+    | "completed"
+    | "error";
+  timestamp: number;
+  url?: string;
+  title?: string;
+  message?: string;
+}
+
+const jobQueue: { [key: string]: JobStatus } = {};
 const JOB_TIMEOUT = 60000; // 60 seconds
 
 // Instantiate the Vercel Blob Storage service
@@ -59,10 +121,12 @@ const storageService: IStorageService = new S3StorageService();
 
 // Util function to validate request body
 function validateRequestBody(
-  body: any
+  body: unknown
 ): body is { topic: string; isPremium: boolean } {
+  const bodyObj = body as Record<string, unknown>;
   return (
-    typeof body?.topic === "string" && typeof body?.isPremium === "boolean"
+    typeof bodyObj?.topic === "string" &&
+    typeof bodyObj?.isPremium === "boolean"
   );
 }
 
@@ -154,7 +218,7 @@ function extractTitleFromLatex(latexString: string): string {
 
   for (const pattern of titlePatterns) {
     const match = latexString.match(pattern);
-    if (match && match[1]) {
+    if (match?.[1]) {
       // Clean up the title
       let title = match[1].trim();
       title = title.replace(/\\\\|\\newline|\\linebreak/g, " ");
@@ -190,14 +254,44 @@ app.post("/api/generate", async (req, res) => {
 
   console.log(`Received POST request at /api/generate with jobId: ${jobId}`);
 
+  const clientInfo = getClientInfo(req);
   const body = req.body;
+
   if (!validateRequestBody(body)) {
     console.log(`Invalid request body for jobId: ${jobId}`);
+
+    // Track invalid request
+    posthog.capture({
+      distinctId: clientInfo.ip,
+      event: "generation_request_invalid",
+      properties: {
+        ...clientInfo,
+        jobId,
+        endpoint: "/api/generate",
+        method: "POST",
+        error: "Invalid request body",
+      },
+    });
+
     delete jobQueue[jobId];
     return res.status(400).send("Invalid request");
   }
 
   const { topic, isPremium } = body;
+
+  // Track successful generation request
+  posthog.capture({
+    distinctId: clientInfo.ip,
+    event: "generation_request_started",
+    properties: {
+      ...clientInfo,
+      jobId,
+      topic,
+      isPremium,
+      endpoint: "/api/generate",
+      method: "POST",
+    },
+  });
 
   // Process job asynchronously
   (async () => {
@@ -267,6 +361,21 @@ app.post("/api/generate", async (req, res) => {
       jobQueue[jobId].url = url;
       jobQueue[jobId].title = title;
       console.log(`Job completed successfully for jobId: ${jobId}`);
+
+      // Track successful completion
+      posthog.capture({
+        distinctId: clientInfo.ip,
+        event: "generation_completed",
+        properties: {
+          ...clientInfo,
+          jobId,
+          topic,
+          isPremium,
+          title,
+          filename,
+          processingTimeMs: Date.now() - jobQueue[jobId].timestamp,
+        },
+      });
     } catch (error) {
       console.error(`Error processing jobId: ${jobId}`, error);
       jobQueue[jobId].status = "error";
@@ -274,6 +383,20 @@ app.post("/api/generate", async (req, res) => {
         error instanceof Error
           ? `Error: ${error.message}`
           : "An error occurred while processing the request";
+
+      // Track error
+      posthog.capture({
+        distinctId: clientInfo.ip,
+        event: "generation_error",
+        properties: {
+          ...clientInfo,
+          jobId,
+          topic,
+          isPremium,
+          error: error instanceof Error ? error.message : "Unknown error",
+          processingTimeMs: Date.now() - jobQueue[jobId].timestamp,
+        },
+      });
     } finally {
       // Clean up temporary directory if it was created
       if (tmpDir) {
@@ -288,12 +411,37 @@ app.post("/api/generate", async (req, res) => {
 app.get("/api/status/:jobId", (req, res) => {
   const jobId = req.params.jobId;
   console.log(`Received status request for jobId: ${jobId}`);
+  const clientInfo = getClientInfo(req);
   const job = jobQueue[jobId];
 
   if (!job) {
     console.log(`Job not found for jobId: ${jobId}`);
+
+    // Track job not found
+    posthog.capture({
+      distinctId: clientInfo.ip,
+      event: "status_check_not_found",
+      properties: {
+        ...clientInfo,
+        jobId,
+        endpoint: "/api/status",
+      },
+    });
+
     return res.status(404).json({ error: "Job not found" });
   }
+
+  // Track status check
+  posthog.capture({
+    distinctId: clientInfo.ip,
+    event: "status_check",
+    properties: {
+      ...clientInfo,
+      jobId,
+      status: job.status,
+      endpoint: "/api/status",
+    },
+  });
 
   jobQueue[jobId].timestamp = Date.now(); // Update timestamp on access
   res.json(job);
@@ -310,14 +458,15 @@ app.get("/api/status/:jobId", (req, res) => {
 function cleanupTempFiles(dir: string) {
   try {
     if (fs.existsSync(dir)) {
-      fs.readdirSync(dir).forEach((file) => {
+      const files = fs.readdirSync(dir);
+      for (const file of files) {
         try {
           const curPath = path.join(dir, file);
           fs.unlinkSync(curPath);
         } catch (err) {
           console.error(`Failed to delete file ${file}:`, err);
         }
-      });
+      }
       fs.rmdirSync(dir);
       console.log(`Successfully cleaned up directory: ${dir}`);
     }
@@ -329,13 +478,14 @@ function cleanupTempFiles(dir: string) {
 // Function to clean up abandoned jobs
 function cleanUpAbandonedJobs() {
   const now = Date.now();
-  Object.keys(jobQueue).forEach((jobId) => {
+  const jobIds = Object.keys(jobQueue);
+  for (const jobId of jobIds) {
     const job = jobQueue[jobId];
     if (now - job.timestamp > JOB_TIMEOUT) {
       console.log(`Job ${jobId} abandoned and removed from queue`);
       delete jobQueue[jobId];
     }
-  });
+  }
 }
 
 // Run cleanup function at regular intervals
@@ -343,4 +493,17 @@ setInterval(cleanUpAbandonedJobs, 60000); // Every 60 seconds
 
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
+});
+
+// Graceful shutdown
+process.on("SIGTERM", async () => {
+  console.log("SIGTERM received, shutting down gracefully");
+  await posthog.shutdown();
+  process.exit(0);
+});
+
+process.on("SIGINT", async () => {
+  console.log("SIGINT received, shutting down gracefully");
+  await posthog.shutdown();
+  process.exit(0);
 });
