@@ -4,20 +4,26 @@ import dotenv from "dotenv";
 import { cleanLatex, Generator } from "./generator";
 import fs from "node:fs";
 import path from "node:path";
-import { v4 as uuidv4 } from "uuid";
-import { exec } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { execFile } from "node:child_process";
 import rateLimit from "express-rate-limit";
 import type { IStorageService } from "./storage/storage";
 import { S3StorageService } from "./storage/s3aws";
 import { PostHog } from "posthog-node";
 
-dotenv.config();
+dotenv.config({ quiet: true });
 
 const app = express();
 app.set("trust proxy", 1);
 
 const AUTH_TOKEN = process.env.AUTH_TOKEN;
 const PORT = (process.env.PORT as unknown as number) || 3000;
+// Comma-separated list of origins allowed to call the API from a browser
+const CORS_ORIGINS = (process.env.CORS_ORIGINS || "https://fakepaper.app")
+	.split(",")
+	.map((origin) => origin.trim());
+const MAX_TOPIC_LENGTH = 500;
+const PDFLATEX_TIMEOUT = 60000; // 60 seconds
 
 export const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 export const GOOGLE_GENERATIVE_AI_API_KEY =
@@ -55,7 +61,7 @@ const generator = new Generator("openai", "gpt-4.1-mini");
 // Middleware
 app.use(
 	cors({
-		origin: "*",
+		origin: CORS_ORIGINS,
 		methods: ["GET", "POST"],
 		allowedHeaders: ["Authorization", "Content-Type"],
 	}),
@@ -106,6 +112,8 @@ function validateRequestBody(
 	const bodyObj = body as Record<string, unknown>;
 	return (
 		typeof bodyObj?.topic === "string" &&
+		bodyObj.topic.trim().length > 0 &&
+		bodyObj.topic.length <= MAX_TOPIC_LENGTH &&
 		typeof bodyObj?.isPremium === "boolean"
 	);
 }
@@ -115,7 +123,7 @@ async function generatePdfFromLatex(
 	tmpDir: string,
 ): Promise<string | null> {
 	return new Promise((resolve, reject) => {
-		const uuid = uuidv4();
+		const uuid = randomUUID();
 		const inputPath = path.join(tmpDir, `${uuid}.tex`);
 		const outputPath = path.join(tmpDir, `${uuid}.pdf`);
 
@@ -127,11 +135,22 @@ async function generatePdfFromLatex(
 			const runPdfLatex = (attempt = 1) => {
 				console.log(`Running pdflatex attempt ${attempt} for ${uuid}`);
 
-				const command = `pdflatex -interaction=nonstopmode -halt-on-error -output-directory="${tmpDir}" "${inputPath}"`;
-
-				exec(
-					command,
-					{ maxBuffer: 1024 * 1024 * 10 },
+				// The LaTeX is LLM output steered by user input, so treat it as untrusted:
+				// no shell, no \write18, and no reading/writing files outside tmpDir
+				execFile(
+					"pdflatex",
+					[
+						"-interaction=nonstopmode",
+						"-halt-on-error",
+						"-no-shell-escape",
+						`${uuid}.tex`,
+					],
+					{
+						cwd: tmpDir,
+						env: { ...process.env, openin_any: "p", openout_any: "p" },
+						timeout: PDFLATEX_TIMEOUT,
+						maxBuffer: 1024 * 1024 * 10,
+					},
 					(error, stdout, stderr) => {
 						if (error) {
 							console.error(`LaTeX compilation failed on attempt ${attempt}:`);
@@ -215,13 +234,13 @@ function extractTitleFromLatex(latexString: string): string {
 // Rate limiter to 2 requests per minute and 20 requests per 24 hours
 const shortTermLimiter = rateLimit({
 	windowMs: 1 * 60 * 1000, // 1 minutes
-	max: 2,
+	limit: 2,
 	message: "Too many requests from this IP, please try again after 1 minute",
 });
 
 const longTermLimiter = rateLimit({
 	windowMs: 24 * 60 * 60 * 1000, // 24 hours
-	max: 20,
+	limit: 20,
 	message: "Too many requests from this IP, please try again after 24 hours",
 });
 
@@ -229,7 +248,7 @@ app.use("/api/generate", shortTermLimiter);
 app.use("/api/generate", longTermLimiter);
 
 app.post("/api/generate", async (req, res) => {
-	const jobId = uuidv4();
+	const jobId = randomUUID();
 	jobQueue[jobId] = { status: "queued", timestamp: Date.now() };
 
 	console.log(`Received POST request at /api/generate with jobId: ${jobId}`);

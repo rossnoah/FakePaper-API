@@ -11,24 +11,31 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@ai-sdk/google": "^1.1.20",
-    "@ai-sdk/openai": "^1.2.1",
-    "@aws-sdk/client-s3": "^3.637.0",
-    "@vercel/blob": "^0.22.3",
-    "ai": "^4.1.54",
-    "cors": "^2.8.5",
-    "dotenv": "^16.4.5",
-    "express": "^4.19.2",
-    "express-rate-limit": "^7.4.0",
-    "posthog-node": "^5.1.1",
-    "tsx": "^4.7.2",
-    "uuid": "^9.0.1"
+    "@ai-sdk/google": "^4.0.105",
+    "@ai-sdk/openai": "^4.0.102",
+    "@aws-sdk/client-s3": "^3.1156.0",
+    "@vercel/blob": "^2.8.2",
+    "ai": "^7.0.153",
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.9",
+    "express": "^5.3.0",
+    "express-rate-limit": "^8.7.1",
+    "posthog-node": "^5.57.1",
+    "tsx": "^4.23.15",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@types/cors": "^2.8.17",
-    "@types/express": "^4.17.21",
-    "@types/node": "^20.12.7",
-    "@types/uuid": "^9.0.8",
-    "typescript": "^5.4.4"
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^24.19.2",
+    "typescript": "^7.0.2"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "overrides": {
+    "@vercel/cli-config": {
+      "zod": "$zod"
+    }
   }
 }
