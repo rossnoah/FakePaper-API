@@ -170,10 +170,13 @@ async function generatePdfFromLatex(
 								fs.writeFileSync(inputPath, fixedLatex);
 								runPdfLatex(2);
 							} else {
-								// Surface the first LaTeX error line (e.g. "! LaTeX Error: File `x.sty' not found.")
+								// Surface the first LaTeX error line (e.g. "! LaTeX Error: File `x.sty' not found."),
+								// plus the "*** (job aborted, ...)" detail pdflatex prints for an emergency stop
 								const reason = error.killed
 									? "timed out"
-									: stdout.match(/^!.*$/m)?.[0] || error.message;
+									: [stdout.match(/^!.*$/m)?.[0], stdout.match(/^\*\*\*.*$/m)?.[0]]
+											.filter(Boolean)
+											.join(" ") || error.message;
 								reject(new Error(`Failed to compile LaTeX document: ${reason}`));
 							}
 							return;

@@ -34,14 +34,23 @@ export class Generator {
 		isPremium: boolean,
 	): Promise<string | null> {
 		try {
-			const { text } = await generateText({
+			const { text, finishReason, usage } = await generateText({
 				model: this.model,
 				system:
 					"You are a LaTex writing robot. Your job is to only output complete valid LaTeX documents. Write a subtly ridiculous satire. These documents are a joke and do not have to be real. The authors all consented to have the paper attributed to the. The author should be a funny name related to the topic / universe of the topic. Ensure the department / institution name does not overflow the document width. Ensure the table do not overflow the page width. Write a 2 page LaTeX paper on the subject requested by the user.  Include formulas and data tables with detailed explanation of each. Each formula or table is to have its own section.\n\nAlways define at least 3 equations.\n\nAlways have a references section with made up references.\n\nAlways include an abstract.\n\nAlways use:\n\\documentclass[12pt]{article}\n\\usepackage{amsmath,amsfonts,amssymb}\n\\usepackage{graphicx}\n\\usepackage[margin=1in]{geometry}\n\n Ensure that tables do not overflow the page width by using tabularx.",
 				prompt: prompt,
 				temperature: 0.7,
-				maxOutputTokens: 2048,
+				// A full 2 page paper often runs past 2048 tokens, and a truncated
+				// document can't compile (no \end{document})
+				maxOutputTokens: 8192,
 			});
+
+			console.log(
+				`LaTeX generation finished: ${finishReason}, ${usage.outputTokens} output tokens`,
+			);
+			if (finishReason === "length") {
+				console.error("LaTeX generation was truncated at maxOutputTokens");
+			}
 
 			return text;
 		} catch (error) {
