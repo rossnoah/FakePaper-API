@@ -7,11 +7,16 @@ WORKDIR /app
 # Copy package.json and package-lock.json files to the working directory
 COPY package*.json ./
 
-# Install TeX Live (basic scheme to reduce image size; adjust as needed)
-RUN apt-get update && apt-get install -y \
+# Install TeX Live, including the recommended/extra packages generated papers commonly use
+# (float, booktabs, xcolor, caption, multirow, siunitx, ...)
+RUN apt-get update && apt-get install -y --no-install-recommends \
     texlive-base \
     texlive-latex-base \
-    && apt-get clean
+    texlive-latex-recommended \
+    texlive-latex-extra \
+    texlive-fonts-recommended \
+    texlive-science \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install the dependencies
 RUN npm ci

@@ -170,7 +170,11 @@ async function generatePdfFromLatex(
 								fs.writeFileSync(inputPath, fixedLatex);
 								runPdfLatex(2);
 							} else {
-								reject(`Failed to compile LaTeX document: ${error.message}`);
+								// Surface the first LaTeX error line (e.g. "! LaTeX Error: File `x.sty' not found.")
+								const reason = error.killed
+									? "timed out"
+									: stdout.match(/^!.*$/m)?.[0] || error.message;
+								reject(new Error(`Failed to compile LaTeX document: ${reason}`));
 							}
 							return;
 						}
@@ -189,7 +193,9 @@ async function generatePdfFromLatex(
 								);
 								console.log("LaTeX output:", stdout);
 								reject(
-									"PDF file was not created despite successful compilation",
+									new Error(
+										"PDF file was not created despite successful compilation",
+									),
 								);
 							}
 						}
@@ -200,7 +206,7 @@ async function generatePdfFromLatex(
 			runPdfLatex();
 		} catch (error) {
 			console.error("Error in LaTeX generation:", error);
-			reject(`Error in LaTeX generation: ${error}`);
+			reject(new Error(`Error in LaTeX generation: ${error}`));
 			return null;
 		}
 	});
